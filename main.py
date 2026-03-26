@@ -16,7 +16,7 @@ t = torch.rand((BATCH_SIZE, NUM_T_IN + NUM_T_OUT))
 pos = torch.rand((BATCH_SIZE, NUM_POS, 3))
 idcs_airfoil = [
     torch.randint(NUM_POS, size=(num_idcs,))
-    for num_idcs in torch.randint(..., ..., size=(BATCH_SIZE,))
+    for num_idcs in torch.randint(3142, 24198, size=(BATCH_SIZE,))
 ]  # variable across point clouds so we cannot use batch dimension
 velocity_in = torch.rand((BATCH_SIZE, NUM_T_IN, NUM_POS, 3))
 ground_truth = torch.rand((BATCH_SIZE, NUM_T_OUT, NUM_POS, 3))
