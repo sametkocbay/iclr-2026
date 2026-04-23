@@ -1,30 +1,71 @@
-import torch
+from __future__ import annotations
 
-from models import MLP as Model
+import argparse
 
-# The model constructor has to be callable without arguments
-model = Model()
+from models import (
+    MLP as Model,
+    SpatiotemporalMNO,
+    get_model_class,
+)
+from src.data import (
+    WarpedIFWDataset,
+    build_loader as _build_loader,
+    compute_velocity_standardization as _compute_velocity_standardization,
+    resolve_overfit_file,
+    scale_velocity as _scale_velocity,
+    split_train_val_test,
+    unscale_velocity_batch as _unscale_velocity_batch,
+)
+from src.training import (
+    NUM_POS,
+    NUM_T_IN,
+    NUM_T_OUT,
+    evaluate,
+    hint_metric,
+    parse_args as _parse_args,
+    run_full_test_inference,
+    set_seed as _set_seed,
+)
+from src.training import trainer as _trainer
 
-# Dimensions of the data
-BATCH_SIZE = 95  # number of point clouds in the test split
-NUM_T_IN = 5  # number of time points in the input
-NUM_T_OUT = 5  # number of time points in the output
-NUM_POS = 100000  # number of points in space
 
-# Dummy data as placeholder for the test split data of the challenge
-t = torch.rand((BATCH_SIZE, NUM_T_IN + NUM_T_OUT))
-pos = torch.rand((BATCH_SIZE, NUM_POS, 3))
-idcs_airfoil = [
-    torch.randint(NUM_POS, size=(num_idcs,))
-    for num_idcs in torch.randint(3142, 24198, size=(BATCH_SIZE,))
-]  # variable across point clouds so we cannot use batch dimension
-velocity_in = torch.rand((BATCH_SIZE, NUM_T_IN, NUM_POS, 3))
-ground_truth = torch.rand((BATCH_SIZE, NUM_T_OUT, NUM_POS, 3))
+def set_seed(seed: int) -> None:
+    _set_seed(seed)
 
-# The model has to return batched estimates
-velocity_out = model(t, pos, idcs_airfoil, velocity_in)
-assert velocity_out.shape == (BATCH_SIZE, NUM_T_OUT, NUM_POS, 3)
 
-# The final evaluation metric is secret, the following is a hint:
-metric = (velocity_out - ground_truth).norm(dim=3).mean(dim=(1, 2))
-print(f"Metric: {metric.mean():.4f} +- {metric.std():.4f}")
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return _parse_args(argv)
+
+
+def train(args: argparse.Namespace) -> None:
+    # Keep notebook monkey-patching compatibility: if callers rebind main.Model,
+    # apply the same class to the trainer module before execution.
+    _trainer.Model = Model
+    _trainer.train(args)
+
+
+__all__ = [
+    "Model",
+    "SpatiotemporalMNO",
+    "NUM_POS",
+    "NUM_T_IN",
+    "NUM_T_OUT",
+    "WarpedIFWDataset",
+    "_build_loader",
+    "_compute_velocity_standardization",
+    "_scale_velocity",
+    "_unscale_velocity_batch",
+    "evaluate",
+    "get_model_class",
+    "hint_metric",
+    "parse_args",
+    "resolve_overfit_file",
+    "run_full_test_inference",
+    "set_seed",
+    "split_train_val_test",
+    "train",
+]
+
+
+if __name__ == "__main__":
+    train(parse_args())
