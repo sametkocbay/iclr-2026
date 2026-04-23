@@ -1,8 +1,5 @@
 # Airflow Prediction on Warped Airfoil Geometries
 
-
-### USE MLP() Model !!!!!
-
 **GRaM Competition @ ICLR 2026** — Geometry-grounded Representation Learning and Generative Modeling
 
 [![Competition](https://img.shields.io/badge/GRaM-Competition-blue)](https://gram-competition.github.io)
@@ -13,6 +10,19 @@
   <img src="https://gram-competition.github.io/assets/front_wing.png" width="600"/>
 </p>
 
+## Submission Model
+
+The submission model is `MLP`, located in `models/mlp/model.py`. It is instantiated with no arguments — pretrained weights are loaded automatically from `baseline_mno_seed118_base_2_32k_budget_crop_5580430/checkpoints/best.pt` on construction. The competition-required calling convention is:
+
+```python
+from models.mlp import MLP
+
+model = MLP()                                          # loads weights automatically
+velocity_out = model(t, pos, idcs_airfoil, velocity_in)  # (B, 5, N, 3)
+```
+
+`infer.py` at the project root contains a complete, self-contained example that loads `1021_1-0.npz` [Placeholder currently], runs inference using exactly the above signature, and prints per-timestep RL2 and overall improvement over the persistence baseline.
+
 ## Challenge
 
 Given a 3D velocity field $\mathbf{u}(t, \mathbf{x})$ of airflow around warped airfoil geometries derived from the [Imperial Front Wing (IFW)](https://data.hpc.imperial.ac.uk/resolve/?doi=6049), predict the velocity field at 5 future timesteps from 5 observed timesteps.
@@ -21,25 +31,7 @@ The dataset spans **181 unique geometries** — each composed of one, two, or th
 
 ## Approach
 
-### Architecture: Multiscale Neural Operator (MNO)
-
-An Encoder → MNO Blocks → Decoder architecture operating directly on unstructured 3D point clouds.
-
-```
-Input Features                    MNO Block (×4)                       Output
-┌──────────────┐    ┌──────────────────────────────────────┐    ┌──────────────┐
-│ 3D Position  │    │  Global Dimension-Shrinkage Attention│    │  Velocity    │
-│ Velocity (5T)│───▶│  Local kNN Graph Attention           │───▶│  Residual    │
-│ Time Stamps  │    │  Micro Point-Wise Attention          │    │  (5T × 3ch)  │
-│ Airfoil Mask │    │  FFN + Residual Connections          │    │  + Baseline  │
-│ Wall Distance│    └──────────────────────────────────────┘    └──────────────┘
-└──────────────┘
-```
-
-**Key design choices:**
-- **Residual prediction** around a persistence baseline (last observed frame), with zero-initialized final layer so training starts from the identity
-- **Hard no-slip enforcement** — airfoil boundary points are analytically set to zero velocity in the model's scaled space, not learned
-- **Wall distance feature** — log-transformed Euclidean distance to the nearest airfoil point, precomputed via `cKDTree` for O(N log A) efficiency
+The model is an Encoder → 4× MNO Block → Decoder architecture operating directly on unstructured 3D point clouds. Each MNO Block combines global dimension-shrinkage attention, local kNN graph attention, and micro point-wise attention with FFN residual connections. The encoder receives per-point concatenated features: 3D position, velocity history (5 frames × 3 channels), Fourier time embeddings, an airfoil surface mask, log wall-distance, and a local surface frame. The decoder predicts a residual around the persistence baseline (last observed frame), with the final layer zero-initialized. Airfoil boundary points are analytically forced to zero velocity (no-slip) in normalized space rather than learned. Per-sample velocity normalization is computed from the input frames and applied automatically inside `forward`.
 
 ### Encoder Inputs
 
@@ -78,12 +70,9 @@ Wall distance and surface frame are precomputed in the dataset (via `cKDTree`) a
 
 ```
 ├── models/
-│   ├── mlp/                     # Competition-submission-safe model package
+│   └── mlp/                     # Submission model package
 │       ├── model.py             # MNO architecture (Encoder, MNOBlock, Decoder)
 │       └── training.py          # Loss functions (RL2, Sobolev, Continuity)
-│   └── spatiotemporal_mno/      # Alternative spatial-then-temporal latent model
-│       ├── model.py             # Per-frame spatial encoder + latent forecaster
-│       └── training_process.md  # Method and workflow notes
 ├── src/
 │   ├── data/
 │   │   └── dataset.py           # Dataset, boundary-biased sampling, collate
@@ -104,6 +93,11 @@ Wall distance and surface frame are precomputed in the dataset (via `cKDTree`) a
 
 ## Quick Start
 
+**Run inference on an example sample:**
+```bash
+python infer.py
+```
+
 **Local training:**
 ```bash
 python scripts/train.py --config config/baseline.yaml \
@@ -111,30 +105,7 @@ python scripts/train.py --config config/baseline.yaml \
     --epochs 200 --batch-size 8 --loss-fn sobolev
 ```
 
-**Alternative spatiotemporal model:**
-```bash
-python scripts/train.py --config config/spatiotemporal_mno.yaml
-```
-
-or explicitly:
-```bash
-python scripts/train.py \
-    --model-name spatiotemporal_mno \
-    --config config/spatiotemporal_mno.yaml
-```
-
 **Google Colab:** Open `notebooks/main.ipynb` — handles dataset download, environment setup, training, and visualization end-to-end.
-
-## Alternative Model
-
-`models/spatiotemporal_mno/` is a second baseline that keeps the MNO pipeline for spatial reasoning but makes temporal modeling explicit.
-
-- Each observed timestep is encoded independently with a shared spatial encoder.
-- Shared MNO blocks build a latent field for that timestep.
-- A latent temporal forecaster predicts all future timesteps jointly.
-- Future latent fields are refined spatially and decoded to velocity residuals.
-
-This is useful when you want to separate spatial representation learning from temporal forecasting instead of flattening the entire 5-frame history into one encoder input.
 
 ## Results Visualization
 
