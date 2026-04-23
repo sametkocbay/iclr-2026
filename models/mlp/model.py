@@ -493,6 +493,20 @@ class MLP(nn.Module):
                 "idcs_airfoil must contain one index tensor per batch element."
             )
 
+        # Auto-normalize: when called via the submission signature (no mean/std),
+        # compute per-sample stats from velocity_in — identical to dataset.py —
+        # and unscale the output before returning so callers get physical velocities.
+        _auto_normalized = False
+        if velocity_mean is None or velocity_std is None:
+            with torch.no_grad():
+                # Mean/std over time and spatial dims: (B,1,1,3) matching dataset.py
+                velocity_mean_local = velocity_in.mean(dim=(1, 2), keepdim=True)
+                velocity_std_local = velocity_in.std(dim=(1, 2), unbiased=False, keepdim=True).clamp_min(1e-6)
+            velocity_in = (velocity_in - velocity_mean_local) / velocity_std_local
+            velocity_mean = velocity_mean_local.squeeze(1).squeeze(1)  # (B, 3)
+            velocity_std = velocity_std_local.squeeze(1).squeeze(1)    # (B, 3)
+            _auto_normalized = True
+
         velocity_feat = velocity_in.permute(0, 2, 1, 3).reshape(
             batch_size,
             num_pos,
@@ -581,6 +595,13 @@ class MLP(nn.Module):
             velocity_out = velocity_out * (~airfoil_mask_bool).to(dtype=velocity_out.dtype)
 
         output = velocity_out.contiguous()
+
+        # Unscale back to physical velocity space when auto-normalization was applied.
+        if _auto_normalized:
+            vm = velocity_mean.view(batch_size, 1, 1, self.output_channels).to(dtype=output.dtype)
+            vs = velocity_std.view(batch_size, 1, 1, self.output_channels).to(dtype=output.dtype)
+            output = output * vs + vm
+
         if return_knn_indices:
             return output, knn_indices
         return output
