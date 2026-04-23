@@ -1,5 +1,8 @@
 # Airflow Prediction on Warped Airfoil Geometries
 
+
+### USE MLP() Model !!!!!
+
 **GRaM Competition @ ICLR 2026** — Geometry-grounded Representation Learning and Generative Modeling
 
 [![Competition](https://img.shields.io/badge/GRaM-Competition-blue)](https://gram-competition.github.io)
