@@ -300,11 +300,26 @@ class MLP(nn.Module):
         checkpoint_path = self._resolve_weights_path(weights_path)
         self.loaded_weights_path = checkpoint_path
 
-        checkpoint = torch.load(
-            checkpoint_path,
-            map_location="cpu",
-            weights_only=False,
-        )
+        import numpy as np
+        import numpy.dtypes as _np_dtypes
+        _numpy_safe_globals = [
+            np._core.multiarray._reconstruct,
+            np._core.multiarray.scalar,
+            np.ndarray,
+            np.dtype,
+        ]
+        # Allowlist all concrete numpy dtype types (e.g. UInt32DType, Float64DType, …)
+        _numpy_safe_globals += [
+            getattr(_np_dtypes, _n)
+            for _n in dir(_np_dtypes)
+            if isinstance(getattr(_np_dtypes, _n), type)
+        ]
+        with torch.serialization.safe_globals(_numpy_safe_globals):
+            checkpoint = torch.load(
+                checkpoint_path,
+                map_location="cpu",
+                weights_only=True,
+            )
         if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
             state_dict = checkpoint["model_state_dict"]
         elif isinstance(checkpoint, dict) and "state_dict" in checkpoint:
