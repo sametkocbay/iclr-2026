@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
@@ -194,6 +196,9 @@ class FourierTimeEmbedding(nn.Module):
 class MLP(nn.Module):
     """Encoder-MNO-Decoder baseline for CFD on unstructured 3D point clouds."""
 
+    _DEFAULT_WEIGHTS_NAME = "best.pt"
+    _DEFAULT_SUBMISSION_CHECKPOINT_DIR = "baseline_mno_seed118_base_2_32k_budget_crop_5580430"
+
     def __init__(
         self,
         *,
@@ -208,6 +213,8 @@ class MLP(nn.Module):
         knn_query_chunk_size: int = 1024,
         graph_query_chunk_size: int = 2048,
         use_torch_cluster_knn: bool = True,
+        load_pretrained: bool = True,
+        weights_path: str | Path | None = None,
     ):
         super().__init__()
 
@@ -262,6 +269,49 @@ class MLP(nn.Module):
         if isinstance(final_layer, nn.Linear):
             nn.init.zeros_(final_layer.weight)
             nn.init.zeros_(final_layer.bias)
+
+        if load_pretrained:
+            self._load_pretrained_weights(weights_path)
+
+    @classmethod
+    def _resolve_weights_path(cls, weights_path: str | Path | None) -> Path:
+        if weights_path is None:
+            repo_root = Path(__file__).resolve().parents[2]
+            candidate_paths = (
+                repo_root
+                / cls._DEFAULT_SUBMISSION_CHECKPOINT_DIR
+                / "checkpoints"
+                / cls._DEFAULT_WEIGHTS_NAME,
+                repo_root / "best_weights" / cls._DEFAULT_WEIGHTS_NAME,
+                Path(__file__).resolve().with_name("state_dict.pt"),
+            )
+            for candidate_path in candidate_paths:
+                if candidate_path.exists():
+                    return candidate_path
+
+            searched_paths = ", ".join(str(path) for path in candidate_paths)
+            raise FileNotFoundError(
+                "Bundled checkpoint not found in any default location: "
+                f"{searched_paths}"
+            )
+        return Path(weights_path).expanduser().resolve()
+
+    def _load_pretrained_weights(self, weights_path: str | Path | None) -> None:
+        checkpoint_path = self._resolve_weights_path(weights_path)
+        self.loaded_weights_path = checkpoint_path
+
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location="cpu",
+            weights_only=False,
+        )
+        if isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+            state_dict = checkpoint["model_state_dict"]
+        elif isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+        else:
+            state_dict = checkpoint
+        self.load_state_dict(state_dict)
 
     @staticmethod
     def _build_airfoil_mask(
